@@ -55,36 +55,26 @@ Seaboard → Pure Data (mpe_poly external, 6 voices) → OSC (mrpeach) → Unity
 - Pd audio: make sure the Focusrite ASIO driver is selected for both in and out and use *Save All Settings* (Pd kept reverting to the Realtek ASIO driver).
 
 ## Unity side — where we are
-- **Unity project "Patchland"** is now at `unity/Patchland/`. Its scripts are `SeaboardReceiver3D.cs` (identical to the Sept 2025 backup) and `EnvironmentalSound.cs` (written directly in Unity, Oct 2026). The scene is `Assets/Scenes/1_notein.unity`. Script backups from **11 September 2025** are in `archive/2025-09_unity-scripts/`. The root-level `seaboard_receiver_script.cs`, now in `archive/2025-08_prototypes/`, was the earlier Flappy Bird prototype.
+- **Unity project "Patchland"** is now at `unity/Patchland/`. Its scripts are `SeaboardReceiver3D.cs` (see below) and `EnvironmentalSound.cs` (written directly in Unity, Oct 2026). The scene is `Assets/Scenes/1_notein.unity`. Script backups from **11 September 2025** are in `archive/2025-09_unity-scripts/`. The root-level `seaboard_receiver_script.cs`, now in `archive/2025-08_prototypes/`, was the earlier Flappy Bird prototype.
 - Using **Starter Assets – Third Person** (CharacterController + `ThirdPersonController` + `StarterAssetsInputs` + Cinemachine). The old `PlayerMovement.cs` is no longer needed.
 - OSC package: **OscJack** by Keijiro (`https://github.com/keijiro/OscJack.git` via Package Manager, or check its README for the current scoped-registry method).
 - **Input handling:** Project Settings → Player → Active Input Handling is set to **"Both"**. However, I've had problems in the past with Unity refusing to read old-style input, so **use the new Input System for all new code** — no `Input.GetAxis` / `Input.GetKey` etc. "Both" is a safety net, not something to rely on. **Decision: leave it on "Both"** — some visual effects I may want later come from an older source, and I want to keep things simple.
 
-### Backed-up scripts
-- `SeaboardReceiver3D.cs` — OscJack server on 8000; sets `isMovingForward` and `currentGlideValue` in the OSC callback; in `Update()` calls `controller.Move()` and `transform.Rotate()` directly.
-- `MouseMovement.cs` — original first-person mouse look using old `Input.GetAxis`.
-- `ClaudePlayerMovement.cs` (class `PlayerMovement`) — old WASD/jump controller; being dropped.
+### `SeaboardReceiver3D` (rewritten 2026-11-06, attached to PlayerArmature)
+Feeds **`StarterAssetsInputs`** rather than moving the character, so `ThirdPersonController` handles movement, animation and the Cinemachine camera.
+- note active → `move` input forward (camera-relative and animated). Walking speed is **Move Speed** on `ThirdPersonController` (2 m/s default; the old script used 8).
+- average glide → horizontal `look` input, converted so that turning isn't frame-rate dependent. Slow turns are accumulated, because `ThirdPersonController` ignores look input below 0.1.
+- **Glide shaping (Inspector):** Max Turn Rate (45°/s), Glide Dead Zone (5), Glide Smooth Time (0.3 s). Added because vibrato shook the view and small bends caused sudden spins: the unshaped maximum was 500°/s. The smoothing filters out vibrato, at the cost of a slower response. Still being tuned by playing.
+- **Mouse recovery:** Allow Mouse Look toggle in the Inspector. Keyboard and mouse aren't overridden when the Seaboard is idle.
+- Logging and the overlay are off by default, with Inspector toggles. OSC callback fields are `volatile`; all Unity API calls stay in `Update()`.
 
-### Problems found in review
-1. **File/class mismatch:** `SeaboardReceiver3D.cs` contains class `SeaboardReceiver` — Unity won't attach it.
-2. **Dependency on `PlayerMovement`** and a GameObject named "Player" (Starter Assets uses `PlayerArmature`) — won't compile once PlayerMovement is removed.
-3. **`MouseMovement.cs` uses the old Input Manager** — conflicts with the decision to use the new Input System only. Probably redundant now; Starter Assets handles look and cursor lock via the new system.
-4. **Receiver bypasses the controller:** direct `Move()`/`Rotate()` fights `ThirdPersonController` — no walk animation, and glide turns the body but not the Cinemachine camera.
-5. **`Debug.Log` on every OSC message** — performance cost; put behind a debug toggle.
-6. **`OnGUI` overlay** would appear in the projection — make it toggleable/off by default.
-7. **Threading:** OSC callback runs on a background thread; fields read in `Update()` should be `volatile` (or locked). Keep all Unity API calls in `Update()`.
-
-### Proposed approach (agreed in principle, not yet built)
-Rewrite the receiver to **feed `StarterAssetsInputs`** rather than move the character:
-- note active → `move` input forward (so movement is camera-relative and animated)
-- average glide → horizontal `look` input (turns the camera; check how `ThirdPersonController` scales look for mouse vs other devices so glide isn't frame-rate dependent)
-- **Keep the mouse as a recovery tool** (e.g. if stuck facing a wall), with an Inspector toggle to disable it so an accidental bump can't swing the camera.
-- Don't override keyboard/mouse input when the Seaboard is idle.
+### Open question: glide and pitch scaling in `mpe_voice`
+`mpe_voice_pitchbend` multiplies bends by 50 and limits them to ±1, and the Pd patch multiplies by 50 again. If the Seaboard's bend range is ±48 semitones (not yet confirmed in ROLI Dashboard), glide reaches its maximum at about one semitone, and the same code may exaggerate and cap the audible pitch at ±2 semitones. Check the bend range and how pitch tracks the finger before changing the external.
 
 ## Next steps
 1. ~~Install OscJack.~~ Done. (Active Input Handling confirmed as "Both"; new Input System only for code.)
-2. Rewrite `SeaboardReceiver` as above; fix naming; remove old dependencies.
-3. Test with Pd sending, debug logging on, then tune sensitivities in the Inspector.
+2. ~~Rewrite `SeaboardReceiver`.~~ Done, and working with the Seaboard (2026-11-06).
+3. Keep tuning glide and walking speed by playing; check the bend-range question above.
 4. Later: more MPE dimensions (Press, Slide) and chord density → movement parameters.
 5. Later: **Unity → Pd return OSC** (OscJack `OscClient`) on a **different port** from 8000 — e.g. entering a new zone changes the sound the Seaboard produces. Message design still to be decided.
 6. Before Futures Studio: Release/`/MT` rebuild of `mpe_poly` (fix the Release ConfigurationType first, see above); macOS build via pd-lib-builder.
